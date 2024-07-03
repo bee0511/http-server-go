@@ -28,7 +28,10 @@ func main() {
 
 func handleConnection(conn net.Conn) {
     defer conn.Close()
-    response := "HTTP/1.1 200 OK\r\n"
+	response := "HTTP/1.1 200 OK\r\n" +
+	"Content-Length: 0\r\n" +
+	"Content-Type: text/plain\r\n" +
+	"\r\n" // End of headers.
     _, err := conn.Write([]byte(response))
     if err != nil {
         fmt.Println("Error writing response:", err)
