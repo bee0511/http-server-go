@@ -59,8 +59,8 @@ func generateResponse(req *HTTPRequest) *HTTPResponse {
 		res.Headers["Content-Type"] = "text/plain"
 		res.Headers["Content-Length"] = strconv.Itoa(len(content))
         encoding, ok := req.Headers["Accept-Encoding"]
-		if ok && encoding == "gzip" {
-			res.Headers["Content-Encoding"] = encoding
+		if ok && strings.Contains(encoding, "gzip") {
+			res.Headers["Content-Encoding"] = "gzip"
 		}
 		res.Content = content
 	case strings.HasPrefix(req.Path, "/files/"):
