@@ -37,7 +37,7 @@ func main() {
 	var response string
 	switch path := req.Path; {
 	case strings.HasPrefix(path, "/echo/"):
-		content := strings.TrimLeft(path, "/echo")
+		content := strings.TrimPrefix(path, "/echo/")
 		response = fmt.Sprintf("%s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", getStatus(200, "OK"), len(content), content)
 	case path == "/user-agent":
 		response = fmt.Sprintf("%s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", getStatus(200, "OK"), len(req.UserAgent), req.UserAgent)
