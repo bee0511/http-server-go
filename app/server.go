@@ -58,7 +58,6 @@ func generateResponse(req *HTTPRequest) *HTTPResponse {
 		res.StatusCode = 200
 		res.StatusText = "OK"
 		res.Headers["Content-Type"] = "text/plain"
-		res.Headers["Content-Length"] = strconv.Itoa(len(content))
 		encoding, ok := req.Headers["Accept-Encoding"]
 		if ok && strings.Contains(encoding, "gzip") {
 			res.Headers["Content-Encoding"] = "gzip"
@@ -67,8 +66,10 @@ func generateResponse(req *HTTPRequest) *HTTPResponse {
             w.Write([]byte(content))
             w.Close()
             res.Content = buffer.String()
+            res.Headers["Content-Length"] = strconv.Itoa(len(res.Content))
             break
 		}
+		res.Headers["Content-Length"] = strconv.Itoa(len(content))
 		res.Content = content
 	case strings.HasPrefix(req.Path, "/files/"):
 		filePath := strings.TrimPrefix(req.Path, "/files/")
