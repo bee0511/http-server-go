@@ -28,6 +28,12 @@ func main() {
 		fmt.Println("Error accepting connection: ", err.Error())
 		os.Exit(1)
 	}
+    go handleClient(conn)
+
+}
+
+func handleClient(conn net.Conn) {
+    defer conn.Close()
 	scanner := bufio.NewScanner(conn)
 	req, _ := parseStatus(scanner)
 	// fmt.Println(req.Headers)
@@ -48,7 +54,6 @@ func main() {
 	}
 	conn.Write([]byte(response))
 	// fmt.Fprintln(conn)
-	conn.Close()
 }
 func parseStatus(scanner *bufio.Scanner) (*HTTPRequest, error) {
 	var req HTTPRequest = HTTPRequest{}
