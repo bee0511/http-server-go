@@ -16,6 +16,13 @@ type HTTPRequest struct {
 	Body    string
 }
 
+type HTTPResponse struct {
+	StatusCode int
+	StatusText string
+	Headers    map[string]string
+	Content    string
+}
+
 func main() {
 	l, err := net.Listen("tcp", "0.0.0.0:4221")
 	if err != nil {
@@ -37,38 +44,68 @@ func handleClient(conn net.Conn) {
 	req, _ := parseStatus(conn)
 	fmt.Println(req)
 
-	var response string
-	switch path := req.Path; {
-	case strings.HasPrefix(path, "/echo/"):
-		content := strings.TrimPrefix(path, "/echo/")
-		response = fmt.Sprintf("%s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", getStatus(200, "OK"), len(content), content)
-	case strings.HasPrefix(path, "/files/"):
-		filePath := strings.TrimPrefix(path, "/files/")
+	response := generateResponse(req)
+	conn.Write([]byte(getResponse(response)))
+}
+func generateResponse(req *HTTPRequest) *HTTPResponse {
+	res := &HTTPResponse{
+		Headers: make(map[string]string),
+	}
+	switch {
+	case strings.HasPrefix(req.Path, "/echo/"):
+		content := strings.TrimPrefix(req.Path, "/echo/")
+		res.StatusCode = 200
+		res.StatusText = "OK"
+		res.Headers["Content-Type"] = "text/plain"
+		res.Headers["Content-Length"] = strconv.Itoa(len(content))
+        encoding, ok := req.Headers["Accept-Encoding"]
+		if ok && encoding == "gzip" {
+			res.Headers["Content-Encoding"] = encoding
+		}
+		res.Content = content
+	case strings.HasPrefix(req.Path, "/files/"):
+		filePath := strings.TrimPrefix(req.Path, "/files/")
 		dir := os.Args[2]
 		if req.Method == "POST" {
-            err := os.WriteFile(dir + "/" + filePath, []byte(req.Body), 0644)
-            if err != nil{
-                panic(err)
-            }
-			response = getStatus(201, "Created") + "\r\n\r\n"
+			err := os.WriteFile(dir+"/"+filePath, []byte(req.Body), 0644)
+			if err != nil {
+				panic(err)
+			}
+			res.StatusCode = 201
+			res.StatusText = "Created"
+			res.Headers["Content-Type"] = "text/plain"
 			break
 		}
 		content, err := os.ReadFile(dir + "/" + filePath)
 		if err != nil {
-			response = getStatus(404, "Not Found") + "\r\n\r\n"
+			res.StatusCode = 404
+			res.StatusText = "Not Found"
 		} else if req.Method == "GET" {
-			fmt.Println("Content of the file: ", string(content))
-			response = fmt.Sprintf("%s\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s", getStatus(200, "OK"), len(content), string(content))
+			res.StatusCode = 200
+			res.StatusText = "OK"
+			res.Headers["Content-Type"] = "application/octet-stream"
+			res.Headers["Content-Length"] = strconv.Itoa(len(content))
+			res.Content = string(content)
 		}
-	case path == "/user-agent":
-		response = fmt.Sprintf("%s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", getStatus(200, "OK"), len(req.Headers["User-Agent"]), req.Headers["User-Agent"])
-	case path == "/":
-		response = getStatus(200, "OK") + "\r\n\r\n"
+	case req.Path == "/user-agent":
+		userAgent := req.Headers["User-Agent"]
+		res.StatusCode = 200
+		res.StatusText = "OK"
+		res.Headers["Content-Type"] = "text/plain"
+		res.Headers["Content-Length"] = strconv.Itoa(len(userAgent))
+		res.Content = userAgent
+	case req.Path == "/":
+		res.StatusCode = 200
+		res.StatusText = "OK"
+		res.Headers["Content-Type"] = "text/plain"
+		res.Headers["Content-Length"] = "0"
 	default:
-		response = getStatus(404, "Not Found") + "\r\n\r\n"
+		res.StatusCode = 404
+		res.StatusText = "Not Found"
 	}
-	conn.Write([]byte(response))
+	return res
 }
+
 func parseStatus(conn net.Conn) (*HTTPRequest, error) {
 	var req HTTPRequest = HTTPRequest{}
 	req.Headers = make(map[string]string)
@@ -110,6 +147,15 @@ func parseStatus(conn net.Conn) (*HTTPRequest, error) {
 	return &req, nil
 }
 
-func getStatus(statusCode int, statusText string) string {
-	return fmt.Sprintf("HTTP/1.1 %d %s", statusCode, statusText)
+func getResponse(res *HTTPResponse) string {
+	statusLine := fmt.Sprintf("HTTP/1.1 %d %s\r\n", res.StatusCode, res.StatusText)
+	headers := ""
+
+	// Add headers from the map
+	for key, value := range res.Headers {
+		headers += fmt.Sprintf("%s: %s\r\n", key, value)
+	}
+
+	headers += "\r\n" // End of headers
+	return statusLine + headers + res.Content
 }
