@@ -1,18 +1,19 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 )
 
 type HTTPRequest struct {
-	Method    string
-	Path      string
-	Body      string
-	UserAgent string
+	Method  string
+	Path    string
+	Headers map[string]string
+	Body    string
 }
 
 func main() {
@@ -33,12 +34,9 @@ func main() {
 
 func handleClient(conn net.Conn) {
 	defer conn.Close()
-	scanner := bufio.NewScanner(conn)
-	req, _ := parseStatus(scanner)
+	req, _ := parseStatus(conn)
 	fmt.Println(req)
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(conn, "reading standard input:", err)
-	}
+
 	var response string
 	switch path := req.Path; {
 	case strings.HasPrefix(path, "/echo/"):
@@ -47,15 +45,23 @@ func handleClient(conn net.Conn) {
 	case strings.HasPrefix(path, "/files/"):
 		filePath := strings.TrimPrefix(path, "/files/")
 		dir := os.Args[2]
+		if req.Method == "POST" {
+            err := os.WriteFile(dir + "/" + filePath, []byte(req.Body), 0644)
+            if err != nil{
+                panic(err)
+            }
+			response = getStatus(201, "Created") + "\r\n\r\n"
+			break
+		}
 		content, err := os.ReadFile(dir + "/" + filePath)
 		if err != nil {
 			response = getStatus(404, "Not Found") + "\r\n\r\n"
-		} else {
-			fmt.Println(string(content))
+		} else if req.Method == "GET" {
+			fmt.Println("Content of the file: ", string(content))
 			response = fmt.Sprintf("%s\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s", getStatus(200, "OK"), len(content), string(content))
 		}
 	case path == "/user-agent":
-		response = fmt.Sprintf("%s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", getStatus(200, "OK"), len(req.UserAgent), req.UserAgent)
+		response = fmt.Sprintf("%s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", getStatus(200, "OK"), len(req.Headers["User-Agent"]), req.Headers["User-Agent"])
 	case path == "/":
 		response = getStatus(200, "OK") + "\r\n\r\n"
 	default:
@@ -63,24 +69,44 @@ func handleClient(conn net.Conn) {
 	}
 	conn.Write([]byte(response))
 }
-func parseStatus(scanner *bufio.Scanner) (*HTTPRequest, error) {
+func parseStatus(conn net.Conn) (*HTTPRequest, error) {
 	var req HTTPRequest = HTTPRequest{}
-	for i := 0; scanner.Scan(); i++ {
-		if i == 0 {
-			parts := strings.Split(scanner.Text(), " ")
-			req.Method = parts[0]
-			req.Path = parts[1]
-			continue
-		}
-		headers := strings.Split(scanner.Text(), ": ")
-		if len(headers) < 2 {
-			req.Body = headers[0]
+	req.Headers = make(map[string]string)
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+	request := string(buf[:n])
+	lines := strings.Split(request, "\r\n")
+
+	requestLine := strings.Split(lines[0], " ")
+	if len(requestLine) < 2 {
+		return nil, fmt.Errorf("invalid request line")
+	}
+	req.Method = requestLine[0]
+	req.Path = requestLine[1]
+
+	for i := 1; i < len(lines); i++ {
+		line := lines[i]
+		if line == "" {
 			break
 		}
-		if headers[0] == "User-Agent" {
-			req.UserAgent = headers[1]
+		headerParts := strings.SplitN(line, ": ", 2)
+		if len(headerParts) == 2 {
+			req.Headers[headerParts[0]] = headerParts[1]
 		}
 	}
+
+	if lenStr, ok := req.Headers["Content-Length"]; ok {
+		contentLength, err := strconv.Atoi(lenStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Content-Length")
+		}
+		bodyIndex := bytes.Index(buf, []byte("\r\n\r\n")) + 4
+		req.Body = string(buf[bodyIndex : bodyIndex+contentLength])
+	}
+
 	return &req, nil
 }
 
